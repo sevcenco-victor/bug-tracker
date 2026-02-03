@@ -3,27 +3,28 @@ pipeline {
 
     stages {
         stage('Unit Tests - Backend') {
-            agent{
+            agent {
                 docker {
                     image 'golang:trixie'
                     reuseNode true
                 }
             }
-            
-        environment {
-            HOME = "${WORKSPACE}"
-            GOCACHE = "${WORKSPACE}/.cache/go-build"
-            GOMODCACHE = "${WORKSPACE}/.cache/go-mod"
-        } 
 
-        steps {
-            dir('bugtracker-backend') {
-                sh '''
+            environment {
+                HOME = "${WORKSPACE}"
+                GOCACHE = "${WORKSPACE}/.cache/go-build"
+                GOMODCACHE = "${WORKSPACE}/.cache/go-mod"
+            }
+
+            steps {
+                dir('bugtracker-backend') {
+                    sh '''
                     mkdir -p $GOCACHE $GOMODCACHE
                     go env
                     go test -v ./...
                 '''
-            }
+                }
             }
         }
+    }
 }
