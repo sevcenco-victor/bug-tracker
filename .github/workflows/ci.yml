@@ -126,7 +126,7 @@ jobs:
 
       - name: Launch Application
         run: |
-          docker compose up -d --build
+          docker compose up -d --build --wait
           npx wait-on http://localhost:8080/api/health -t 30000
 
       - name: Run API Tests
@@ -154,6 +154,7 @@ jobs:
           name: api-test-playwright-report
           path: ./tests-api/playwright-report
           retention-days: 30
+
       - name: Publish Api Test Results
         uses: dorny/test-reporter@v1
         if: always()
