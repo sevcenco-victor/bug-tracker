@@ -32,7 +32,7 @@ jobs:
         with:
           name: Backend Unit Tests
           path: bugtracker-backend/test-results.xml
-          reporter: go-junit
+          reporter: jest-junit
 
   unit-tests-frontend:
     needs: unit-tests-backend
