@@ -1,0 +1,193 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Execute Unit Tests') {
+            parallel {
+                stage('Unit Tests - Backend') {
+                    agent {
+                        docker {
+                            image 'golang:trixie'
+                            reuseNode true
+                        }
+                    }
+
+                    environment {
+                        HOME = "${WORKSPACE}"
+                        GOCACHE = "${WORKSPACE}/.cache/go-build"
+                        GOMODCACHE = "${WORKSPACE}/.cache/go-mod"
+                    }
+
+                    steps {
+                        dir('bugtracker-backend') {
+                            sh '''
+                                mkdir -p $GOCACHE $GOMODCACHE
+                                export PATH="$PATH:$HOME/go/bin"
+
+                                go install github.com/jstemmer/go-junit-report/v2@latest
+                                go test -v ./... 2>&1 | go-junit-report > test-results.xml
+
+                                go test -coverprofile=coverage.out -covermode=atomic ./...
+                                go tool cover -html=coverage.out -o coverage.html
+
+                                mkdir -p reports
+                                mv coverage.out reports/
+                            '''
+                        }
+                    }
+
+                    post {
+                        always {
+                            junit 'bugtracker-backend/test-results.xml'
+                            publishHTML target: [
+                                reportDir: 'bugtracker-backend/reports',
+                                reportFiles: 'coverage.html',
+                                reportName: 'Backend Coverage Report'
+                            ]
+                        }
+                    }
+                }
+
+                stage('Unit Tests - Frontend') {
+                    agent {
+                        docker {
+                            image 'node:20-alpine'
+                            reuseNode true
+                        }
+                    }
+
+                    steps {
+                        dir('bugtracker-frontend') {
+                            sh '''
+                                npm ci
+                                npm test
+
+                                mkdir -p reports
+                                mv coverage reports/
+                            '''
+                        }
+                    }
+
+                    post {
+                        always {
+                            junit 'bugtracker-frontend/test-results.xml'
+                            publishHTML target: [
+                                reportDir: 'bugtracker-frontend/reports/coverage',
+                                reportFiles: 'index.html',
+                                reportName: 'Frontend Coverage Report'
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Launch Application') {
+            agent {
+                docker {
+                    image 'docker:27.5.1'
+                    reuseNode true
+                    args '-v /var/run/docker.sock:/var/run/docker.sock -u 0'
+                }
+            }
+            steps {
+                sh 'docker compose up --build -d'
+            }
+        }
+
+        stage('API Tests') {
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/playwright:v1.50.0-jammy'
+                    reuseNode true
+                    args '-u 0 --network=host'
+                }
+            }
+
+            steps {
+                dir('tests-api') {
+                    sh '''
+                        npx wait-port http://localhost:8080/api/health -t 30000
+
+                        npm ci
+                        npx playwright test
+                    '''
+                }
+            }
+            post {
+                always {
+                    junit 'tests-api/test-results/results.xml'
+                    publishHTML target: [
+                        reportDir: 'tests-api/playwright-report',
+                        reportFiles: 'index.html',
+                        reportName: 'API Test Report'
+                    ]
+                }
+            }
+        }
+
+        stage('E2e Tests') {
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/playwright:v1.50.0-jammy'
+                    reuseNode true
+                    args '-u 0 --network=host'
+                }
+            }
+
+            steps {
+                dit('test-e2e') {
+                    sh '''
+                        npm ci
+                        npx playwright test
+                    '''
+                }
+            }
+
+            post {
+                always {
+                    junit 'test-e2e/test-results/results.xml'
+                    publishHTML target: [
+                        reportDir: 'test-e2e/playwright-report',
+                        reportFiles: 'index.html',
+                        reportName: 'E2E Test Report'
+                    ]
+                }
+            }
+        }
+
+        stage('Performance Tests'){
+            agent {
+                docker{
+                    image 'grafana/k6:latest'
+                    reuseNode true
+                    args '--network=host -u root --entrypoint=""'
+                }
+            }
+
+            steps{
+                dir('tests-perf'){
+                    sh '''
+                        k6 run script.js
+                    '''
+                }
+            }
+
+            post{
+                always{
+                    publishHTML target: [
+                        reportDir: 'tests-perf',
+                        reportFiles: 'perf-results.html',
+                        reportName: 'Performance Test Report'
+                    ]
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
